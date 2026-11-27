@@ -66,7 +66,11 @@ p { margin: 0; }
    this, i want can see 1-5") */
 .stage { position: relative; height: clamp(200px, calc(100vh - 500px), 560px); width: 100%; max-width: 100%; border-radius: var(--r); border: 1px solid var(--line); background: var(--logo-white); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 @media (max-width: 560px) { .stage { height: auto; aspect-ratio: 4 / 3; } }
-.stagecap { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+.stagecap { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+.capl { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.saver { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.btn-save { font: 600 14px/1 var(--f-body); background: var(--accent); color: var(--on-accent); border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer; }
+.btn-save:disabled { opacity: .6; cursor: wait; }
 .stagecap .name { font: 600 15px/1.35 var(--f-display); color: var(--ink); }
 .fit { display: flex; align-items: center; justify-content: center; }
 .lk { position: relative; flex: none; }
@@ -143,7 +147,10 @@ footer { border-top: 1px solid var(--line); padding-top: 16px; display: flex; ju
   <main class="main">
     <section class="stagebox" aria-label="Your logo">
       <div class="stage" id="stage"><div class="fit" id="stageFit" style="width:84%;height:76%"></div></div>
-      <div class="stagecap"><span class="name" id="mixName"></span><span class="small muted" id="mixParts"></span></div>
+      <div class="stagecap">
+        <div class="capl"><span class="name" id="mixName"></span><span class="small muted" id="mixParts"></span></div>
+        <div class="saver"><span class="small muted" id="saveStatus" role="status"></span><button type="button" class="btn-save" id="save">Save this logo</button></div>
+      </div>
     </section>
 
     <section class="panel" aria-label="Choose your logo">
@@ -288,6 +295,7 @@ function buildControls() {
   [1, 2, 3].forEach(n => tile('symTiles', 'sym' + n, P.symbols[SYM[n].key].src, SYM[n].name, () => set({ s: n })));
   tile('symTiles', 'sym0', null, 'No symbol, name only', () => set({ s: 0 }));
   [1, 2, 3].forEach(n => tile('wordTiles', 'word' + n, P.wordmarks[n].acads.src, WORD[n].name, () => { if (!(st.s && st.lay === 'icon')) set({ w: n }); }));
+  $('save').addEventListener('click', saveLogo);
   $('size').addEventListener('input', e => { if (st.s) set({ z: +e.target.value }, false); });
   $('size').addEventListener('change', () => syncHash());
   $('size-down').addEventListener('click', () => { if (st.s) set({ z: Math.max(60, st.z - 10) }); });
@@ -306,6 +314,47 @@ function set(patch, hash = true) {
   if (hash) syncHash();
 }
 function syncHash() { const c = code(); if (location.hash.slice(1) !== c) { try { location.replace('#' + c); } catch (e) {} } }
+/* ---- save: the logo as shown, a PNG on white, at the pieces' own resolution (never enlarged) ---- */
+function loadImage(src) {
+  return new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src; });
+}
+function fileName() {
+  return 'ACADS-logo-' + mixName().replace(/^As designed: /, 'as-designed-').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '.png';
+}
+async function saveLogo() {
+  const btn = $('save'), status = $('saveStatus');
+  if (window.claude) {                         // the claude.ai preview blocks downloads; the public page does not
+    status.textContent = 'Saving works on the public link.';
+    return;
+  }
+  btn.disabled = true; status.textContent = 'Preparing…';
+  try {
+    const items = pieces(st);
+    const s = Math.min(...items.map(i => i.pw / i.w));          // px per cap: no piece past its own pixels
+    const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y));
+    const bw = Math.max(...items.map(i => i.x + i.w)) - x0, bh = Math.max(...items.map(i => i.y + i.h)) - y0;
+    const pad = Math.round(0.1 * Math.max(bw, bh) * s);
+    const c = document.createElement('canvas');
+    c.width = Math.round(bw * s) + 2 * pad; c.height = Math.round(bh * s) + 2 * pad;
+    const g = c.getContext('2d');
+    g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, c.width, c.height);
+    g.imageSmoothingQuality = 'high';
+    for (const i of items) {
+      const im = await loadImage(i.src);
+      g.drawImage(im, pad + (i.x - x0) * s, pad + (i.y - y0) * s, i.w * s, i.h * s);
+    }
+    const blob = await new Promise((ok, fail) => c.toBlob(b => b ? ok(b) : fail(new Error('no image')), 'image/png'));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = fileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    status.textContent = 'Saved: ' + c.width + ' × ' + c.height + ' px';
+  } catch (e) {
+    status.textContent = 'Could not save. Please try again.';
+  } finally { btn.disabled = false; }
+}
+
 /* ---- render ---- */
 function render() {
   [0, 1, 2, 3].forEach(n => pressed($('sym' + n), st.s === n));
