@@ -314,6 +314,25 @@ function set(patch, hash = true) {
   if (hash) syncHash();
 }
 function syncHash() { const c = code(); if (location.hash.slice(1) !== c) { try { location.replace('#' + c); } catch (e) {} } }
+/* ---- every saved logo is also kept in the user's Supabase project (user, 2026-11-27: "the saved one will be inside
+   the data lah. can put at the supabase"): the PNG in Storage bucket logo-saves and a row in logo_saves (time, design,
+   a link that opens that exact logo). The publishable key is public by design; the project only lets this page ADD
+   (insert-only policies), never read, change or delete. A failure here never stops the client's own download. ---- */
+const SAVES = { url: 'https://adswkjksfqajwimcowfn.supabase.co', key: 'sb_publishable_FmscT3MqXWWu8advBwIsdg_7Eb_dUJx',
+                page: 'https://utopiagrowth.github.io/acads-logo-mixer/' };
+async function keepCopy(blob) {
+  try {
+    const path = new Date().toISOString().replace(/[:.]/g, '-') + '-' + fileName();
+    const up = await fetch(SAVES.url + '/storage/v1/object/logo-saves/' + path, {
+      method: 'POST', headers: { apikey: SAVES.key, 'Content-Type': 'image/png', 'x-upsert': 'false' }, body: blob });
+    if (!up.ok) return false;
+    const row = await fetch(SAVES.url + '/rest/v1/logo_saves', {
+      method: 'POST', headers: { apikey: SAVES.key, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ design: mixName(), link: SAVES.page + '#' + code(), image_path: path }) });
+    return row.ok;
+  } catch (e) { return false; }
+}
+
 /* ---- save: the logo as shown, a PNG on white, at the pieces' own resolution (never enlarged) ---- */
 function loadImage(src) {
   return new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src; });
@@ -350,6 +369,7 @@ async function saveLogo() {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     status.textContent = 'Saved: ' + c.width + ' × ' + c.height + ' px';
+    keepCopy(blob);                              // in the background; the client's file is already saved
   } catch (e) {
     status.textContent = 'Could not save. Please try again.';
   } finally { btn.disabled = false; }
